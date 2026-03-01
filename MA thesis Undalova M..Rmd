@@ -1,0 +1,1048 @@
+---
+title: "MA thesis Undalova M."
+author: "Margarita Undalova"
+date: "2026-03-01"
+output:
+  html_document:
+    self_contained: yes
+    toc: yes
+    toc_float: yes
+    toc_depth: 3
+    number_sections: false
+    theme: flatly
+    highlight: tango
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE, fig.align = "center")
+```
+
+```{r Setup and Libraries}
+# DATA MANIPULATION AND VISUALISATION
+library(tidyverse)
+library(dplyr)
+library(tidyr)
+library(here)
+
+# STATISTICAL MODELING
+library(lme4)        # Linear mixed-effects models
+library(lmerTest)    # p-values for lmer models
+library(emmeans)     # Estimated marginal means
+library(multcomp)    # Multiple comparisons
+library(effsize)     # Cohen's d
+
+# VISUALISATION
+library(ggplot2)
+library(sjPlot)
+library(ggsci)       # Color palettes
+library(patchwork)   # Combine plots
+library(scales)      # Scale functions
+library(ggeffects)   # Predicted values from models
+
+# TABLES
+library(kableExtra)  # APA-style tables
+library(flextable)   # Professional tables
+library(officer)     # Save tables to Word
+
+# CONFLICT RESOLUTION
+select <- dplyr::select
+filter <- dplyr::filter
+mutate <- dplyr::mutate
+rename <- dplyr::rename
+case_when <- dplyr::case_when
+```
+
+```{r Colours and Theme}
+# Define consistent color scheme for gender
+gender_colors <- c(
+  female = "#E64B35",   # Red-orange
+  male = "#4DBBD5"      # Blue
+)
+
+# Extended palette for additional categories
+extended_palette <- c(
+  "#E64B35", "#4DBBD5", "#00A087", "#3C5488", 
+  "#F39B7F", "#8491B4", "#91D1C2", "#DC0000"
+)
+
+# Custom ggplot theme for consistency across all figures
+custom_theme <- function(base_size = 12) {
+  theme_minimal(base_size = base_size, base_family = "Times New Roman") +
+    theme(
+      plot.title = element_text(face = "bold", hjust = 0.5, size = base_size + 1),
+      plot.subtitle = element_text(hjust = 0.5, color = "gray40", size = base_size - 1),
+      axis.title = element_text(face = "bold"),
+      legend.title = element_text(face = "bold"),
+      legend.text = element_text(size = base_size),
+      axis.text = element_text(size = base_size-2),
+      panel.grid.minor = element_blank(),
+      plot.margin = margin(15, 15, 15, 15),
+      legend.position = "bottom"
+    )
+}
+
+# Set global theme
+theme_set(custom_theme())
+```
+
+```{r Table Templates}
+# Create table templates with values from the complete analysis file
+# These tables are created here as data frames and will be displayed later
+
+# TABLE 1: VWP Descriptive Statistics
+table1_data <- data.frame(
+  Variable = c("First Fixation RT (ms)", "", "Total Dwell Time (ms)", ""),
+  Speaker_Gender = c("female", "male", "female", "male"),
+  M = c(1746.7, 1663.0, 549.4, 416.3),
+  SD = c(885.6, 727.5, 440.5, 336.5),
+  CI = c("[1701.4, 1791.9]", "[1625.0, 1701.0]", "[526.1, 572.6]", "[398.4, 434.2]"),
+  n = c(1469, 1409, 1379, 1355)
+)
+
+# TABLE 2: VWP Statistical Tests (Linear Mixed-Effects Models)
+table2_data <- data.frame(
+  Model = c("H1a/H2: First Fixation", "", "", "H1b/H2: Total Dwell Time", "", ""),
+  Effect = c("(Intercept)", "speaker_gendermale", "participant_gendermale",
+             "(Intercept)", "speaker_gendermale", "participant_gendermale"),
+  beta = c(7.370, -0.029, -0.010, 5.883, -0.271, 0.101),
+  SE = c(0.017, 0.015, 0.017, 0.062, 0.045, 0.079),
+  t = c(438.65, -1.88, -0.58, 94.72, -6.02, 1.28),
+  p = c("< .001", "0.060†", "0.562", "< .001", "< .001", "0.204")
+)
+
+# TABLE 5: Summary of Hypothesis Testing
+table5_data <- data.frame(
+  Hypothesis = c("H1a", "H1b", "H2 (First Fixation)", "H2 (Total Dwell Time)"),
+  Prediction = c("Male voice → faster first fixation on 'me'",
+                 "Male voice → faster total dwell time to 'me'",
+                 "Effect stronger for male participants",
+                 "Effect stronger for male participants"),
+  Result = c("Not significant", "Significant", "Not significant", "Not significant"),
+  p_value = c("0.060†", "< .001", "0.493", "0.157"),
+  Cohen_s_d = c("0.07", "0.33", "---", "---"),
+  Conclusion = c("Not supported", "Supported", "Not supported", "Not supported")
+)
+
+# TABLE 8: MSS Statistical Tests (will be populated later with actual values)
+table8_data_template <- data.frame(
+  Test = c("Gender Difference (t-test)", "Effect Size (Cohen's d)",
+           "Correlation with VWP Effect", "Correlation with IAT D-score"),
+  Statistic = c("t(135.3) = 5.65", "d = 0.95", "r = 0.123", "r = -0.044"),
+  p_value = c("< .001", "N/A", "0.155", "0.615"),
+  Interpretation = c("Significant", "Large effect", "No significant correlation", "Not applicable")
+)
+```
+
+```{r Data loading and Cleaning}
+# Load and clean VWP timecourse data
+timecourse <- read.csv("~/Downloads/VWP_timecourse_data.csv") %>%
+  select(
+    participant = subject,
+    trial,
+    gaze_x, gaze_y,
+    aoi,
+    speaker_gender,
+    looked_at_me,
+    first_look_me
+  ) %>%
+  mutate(
+    speaker_gender = case_when(
+      tolower(speaker_gender) %in% c("m","male") ~ "male",
+      tolower(speaker_gender) %in% c("f","female") ~ "female",
+      TRUE ~ NA_character_
+    ),
+    looked_at_me = as.logical(looked_at_me),
+    first_look_me = ifelse(first_look_me < 0, NA, first_look_me)
+  ) %>%
+  filter(!is.na(speaker_gender))
+
+# Load word-location mapping to know where "me" appeared on screen
+locations <- read.csv("~/Downloads/data VWP_task_data.csv") %>%
+  select(
+    participant = Participant.Private.ID,
+    trial = Trial.Number,
+    top_left = Spreadsheet..TopLeft,
+    top_right = Spreadsheet..TopRight,
+    bottom_left = Spreadsheet..BottomLeft,
+    bottom_right = Spreadsheet..BottomRight
+  ) %>%
+  distinct(participant, trial, .keep_all = TRUE) %>%
+  mutate(
+    me_quadrant = case_when(
+      top_left == "me" ~ "TL",
+      top_right == "me" ~ "TR",
+      bottom_left == "me" ~ "BL",
+      bottom_right == "me" ~ "BR",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  filter(!is.na(me_quadrant)) %>%
+  select(participant, trial, me_quadrant)
+
+# Load participant gender from questionnaire data
+part_gender <- read.csv("~/Downloads/VWP_questionnaire_data.csv") %>%
+  select(participant = Participant.Private.ID, response = Response) %>%
+  mutate(
+    response = tolower(response),
+    participant_gender = case_when(
+      response %in% c("male","man","m") ~ "male",
+      response %in% c("female","woman","f") ~ "female",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  filter(!is.na(participant_gender)) %>%
+  distinct(participant, participant_gender)
+
+# Merge gaze data with layout information
+gaze_data <- timecourse %>%
+  left_join(locations, by = c("participant", "trial")) %>%
+  mutate(looking_at_me = (aoi == me_quadrant))
+
+# Sampling parameters for time calculations
+sampling_rate <- 60  # Hz
+ms_per_sample <- 1000 / 60  # milliseconds per sample
+```
+
+```{r Create Dependent Variables}
+# H1b: Total dwell time on "me"
+# Sum all samples where participant was looking at "me" for each trial
+dwell_time_data <- gaze_data %>%
+  filter(looking_at_me) %>%
+  group_by(participant, trial, speaker_gender) %>%
+  summarise(
+    total_samples = n(),
+    dwell_time_ms = n() * ms_per_sample,
+    .groups = "drop"
+  ) %>%
+  mutate(log_dwell_time = log(dwell_time_ms + 1))
+
+# H1a: First fixation reaction time to "me"
+# Extract the time of the first look at "me" for each trial
+first_fixation_data <- timecourse %>%
+  filter(looked_at_me & !is.na(first_look_me)) %>%
+  group_by(participant, trial) %>%
+  summarise(
+    first_fixation_ms = first(first_look_me),
+    .groups = "drop"
+  ) %>%
+  mutate(log_first_fixation = log(first_fixation_ms + 1))
+
+# Add speaker information
+speaker_info <- timecourse %>%
+  distinct(participant, trial, speaker_gender)
+
+# Create final datasets for analysis with all factors
+h1a_data <- first_fixation_data %>%
+  left_join(speaker_info, by = c("participant", "trial")) %>%
+  left_join(part_gender, by = "participant") %>%
+  filter(!is.na(participant_gender)) %>%
+  mutate(
+    speaker_gender = factor(speaker_gender, levels = c("female", "male")),
+    participant_gender = factor(participant_gender, levels = c("female", "male"))
+  )
+
+h1b_data <- dwell_time_data %>%
+  left_join(part_gender, by = "participant") %>%
+  filter(!is.na(participant_gender)) %>%
+  mutate(
+    speaker_gender = factor(speaker_gender, levels = c("female", "male")),
+    participant_gender = factor(participant_gender, levels = c("female", "male"))
+  )
+```
+
+```{r VWP Statistical Models}
+# HIERARCHICAL ANALYSIS: Linear Mixed-Effects Models
+# Following the principle: Full model (with interaction) -> LRT -> Reduced model
+
+# --- DEPENDENT VARIABLE 1: Total Dwell Time (H1b, H2) ---
+
+# 1. FULL MODEL: Speaker Gender * Participant Gender interaction
+m_full_dwell <- lmer(log_dwell_time ~ speaker_gender * participant_gender + 
+                     (1 + speaker_gender | participant) +
+                     (1 | trial), 
+                     data = h1b_data,
+                     REML = FALSE)
+
+# 2. REDUCED MODEL: Main effects only
+m_reduced_dwell <- lmer(log_dwell_time ~ speaker_gender + participant_gender + 
+                        (1 + speaker_gender | participant) +
+                        (1 | trial),
+                        data = h1b_data,
+                        REML = FALSE)
+
+# 3. LIKELIHOOD RATIO TEST: Does interaction significantly improve fit? (H2)
+h2_dwell_test <- anova(m_full_dwell, m_reduced_dwell)
+h2_dwell_p <- h2_dwell_test$`Pr(>Chisq)`[2]
+
+# 4. MODEL SELECTION: Keep reduced model if interaction is non-significant
+if(h2_dwell_p > 0.05) {
+  m_final_dwell <- m_reduced_dwell
+  h2_dwell_supported <- FALSE
+} else {
+  m_final_dwell <- m_full_dwell
+  h2_dwell_supported <- TRUE
+}
+
+# 5. MAIN EFFECT OF SPEAKER GENDER (H1b) from final model
+summary_dwell <- summary(m_final_dwell)
+speaker_effect_dwell <- summary_dwell$coefficients[2, ]  # row 2 = speaker_gendermale
+
+h1b_beta <- speaker_effect_dwell["Estimate"]
+h1b_se <- speaker_effect_dwell["Std. Error"]
+h1b_t <- speaker_effect_dwell["t value"]
+h1b_p <- speaker_effect_dwell["Pr(>|t|)"]
+
+# --- DEPENDENT VARIABLE 2: First Fixation Latency (H1a, H2) ---
+
+# 1. FULL MODEL: Speaker Gender * Participant Gender interaction
+m_full_first <- lmer(log_first_fixation ~ speaker_gender * participant_gender + 
+                     (1|participant) + (1|trial), 
+                     data = h1a_data,
+                     REML = FALSE)
+
+# 2. REDUCED MODEL: Main effects only
+m_reduced_first <- lmer(log_first_fixation ~ speaker_gender + participant_gender + 
+                        (1|participant) + (1|trial), 
+                        data = h1a_data,
+                        REML = FALSE)
+
+# 3. LIKELIHOOD RATIO TEST: Does interaction significantly improve fit? (H2)
+h2_first_test <- anova(m_full_first, m_reduced_first)
+h2_first_p <- h2_first_test$`Pr(>Chisq)`[2]
+
+# 4. MODEL SELECTION: Keep reduced model if interaction is non-significant
+if(h2_first_p > 0.05) {
+  m_final_first <- m_reduced_first
+  h2_first_supported <- FALSE
+} else {
+  m_final_first <- m_full_first
+  h2_first_supported <- TRUE
+}
+
+# 5. MAIN EFFECT OF SPEAKER GENDER (H1a) from final model
+summary_first <- summary(m_final_first)
+speaker_effect_first <- summary_first$coefficients[2, ]  # row 2 = speaker_gendermale
+
+h1a_beta <- speaker_effect_first["Estimate"]
+h1a_se <- speaker_effect_first["Std. Error"]
+h1a_t <- speaker_effect_first["t value"]
+h1a_p <- speaker_effect_first["Pr(>|t|)"]
+```
+
+```{r MSS Data Processing}
+# Load Modern Sexism Scale data
+mss_data <- read.csv("~/Downloads/MSS_data_clean.csv")
+
+# Extract unique MSS scores for each participant
+mss_scores <- mss_data %>%
+  distinct(participant_private, .keep_all = TRUE) %>%
+  select(participant = participant_private, mss_score = mean_MSS_score) %>%
+  mutate(participant = as.character(participant))
+
+# Ensure participant_gender has character IDs for merging
+part_gender <- part_gender %>%
+  mutate(participant = as.character(participant))
+
+# Combine MSS with gender data
+mss_combined <- mss_scores %>%
+  left_join(part_gender, by = "participant") %>%
+  filter(!is.na(participant_gender))
+
+# Descriptive statistics for MSS
+mss_desc <- mss_combined %>%
+  summarise(
+    n_participants = n(),
+    mean_score = mean(mss_score, na.rm = TRUE),
+    sd_score = sd(mss_score, na.rm = TRUE),
+    min_score = min(mss_score, na.rm = TRUE),
+    max_score = max(mss_score, na.rm = TRUE),
+    median_score = median(mss_score, na.rm = TRUE)
+  )
+
+# MSS statistics by gender
+mss_by_gender <- mss_combined %>%
+  group_by(participant_gender) %>%
+  summarise(
+    mean_score = mean(mss_score, na.rm = TRUE),
+    sd_score = sd(mss_score, na.rm = TRUE),
+    n = n()
+  )
+
+# Create MSS categories for distribution analysis
+mss_combined <- mss_combined %>%
+  mutate(
+    mss_category = case_when(
+      mss_score < 3 ~ "Low (1-2.99)",
+      mss_score < 5 ~ "Moderate (3-4.99)",
+      mss_score >= 5 ~ "High (5-7)"
+    ),
+    mss_category = factor(mss_category, 
+                          levels = c("Low (1-2.99)", "Moderate (3-4.99)", "High (5-7)"))
+  )
+
+# T-test for gender differences in MSS
+t_test_mss <- t.test(mss_score ~ participant_gender, data = mss_combined)
+cohens_d_mss <- cohen.d(mss_score ~ participant_gender, data = mss_combined)
+
+# Store MSS results for tables
+mss_results <- list(
+  overall_mean = mss_desc$mean_score,
+  overall_sd = mss_desc$sd_score,
+  female_mean = mss_by_gender$mean_score[mss_by_gender$participant_gender == "female"],
+  male_mean = mss_by_gender$mean_score[mss_by_gender$participant_gender == "male"],
+  t_statistic = t_test_mss$statistic,
+  df = t_test_mss$parameter,
+  p_value = t_test_mss$p.value,
+  cohens_d = cohens_d_mss$estimate
+)
+
+# Create MSS descriptive table
+mss_table <- data.frame(
+  Group = c("Female", "Male", "Overall"),
+  N = c(mss_by_gender$n[mss_by_gender$participant_gender == "female"],
+        mss_by_gender$n[mss_by_gender$participant_gender == "male"],
+        mss_desc$n_participants),
+  Mean = round(c(mss_by_gender$mean_score[mss_by_gender$participant_gender == "female"],
+                 mss_by_gender$mean_score[mss_by_gender$participant_gender == "male"],
+                 mss_desc$mean_score), 2),
+  SD = round(c(mss_by_gender$sd_score[mss_by_gender$participant_gender == "female"],
+               mss_by_gender$sd_score[mss_by_gender$participant_gender == "male"],
+               mss_desc$sd_score), 2)
+)
+```
+
+```{r IAT Data Processing}
+# Load raw IAT data from task data file
+task_data <- read.csv("~/Downloads/VWP_task_data.csv")
+
+# Extract Gender IAT data only
+gender_iat_raw <- task_data %>%
+  filter(Task.Name == "IAT (Exp. 4) (Gender)") %>%
+  mutate(
+    rt = as.numeric(Reaction.Time),
+    participant = as.character(Participant.Private.ID),
+    trial = Trial.Number,
+    correct = Correct  # 1 = correct, 0 = incorrect
+  )
+
+# STEP 1: Base RT filtering (0-10000ms)
+gender_iat <- gender_iat_raw %>%
+  filter(!is.na(rt) & rt > 0 & rt < 10000)
+
+# STEP 2: Remove first 4 trials from each block (novelty effects)
+# Blocks: trials 1-20 (compatible), 21-40 (incompatible)
+gender_iat <- gender_iat %>%
+  filter(!(trial %in% c(1:4, 21:24)))
+
+# STEP 3: Winsorize RT to 400-2000ms (Nosek et al., 2014)
+gender_iat <- gender_iat %>%
+  mutate(
+    rt_winsorized = case_when(
+      rt < 400 ~ 400,
+      rt > 2000 ~ 2000,
+      TRUE ~ rt
+    )
+  )
+
+# STEP 4: Exclude participants with >10% trials <300ms (fast responders)
+fast_responders <- gender_iat %>%
+  group_by(participant) %>%
+  summarise(fast_prop = mean(rt < 300, na.rm = TRUE)) %>%
+  filter(fast_prop > 0.1) %>%
+  pull(participant)
+
+gender_iat_clean <- gender_iat %>%
+  filter(!participant %in% fast_responders)
+
+# STEP 5: Calculate IAT D-scores using split-half method
+calculate_iat_d <- function(iat_df) {
+  iat_df %>%
+    group_by(participant) %>%
+    mutate(
+      trial_order = row_number(),
+      half = ifelse(trial_order <= median(trial_order), "first", "second")
+    ) %>%
+    group_by(participant, half) %>%
+    summarise(
+      mean_rt = mean(rt_winsorized, na.rm = TRUE),
+      sd_rt = sd(rt_winsorized, na.rm = TRUE),
+      n = n(),
+      .groups = "drop"
+    ) %>%
+    pivot_wider(names_from = half, values_from = c(mean_rt, sd_rt, n)) %>%
+    mutate(
+      iat_d = (mean_rt_second - mean_rt_first) / 
+              sqrt((sd_rt_first^2 + sd_rt_second^2) / 2)
+    ) %>%
+    select(participant, iat_d)
+}
+
+# Compute IAT D-scores
+iat_d_scores <- calculate_iat_d(gender_iat_clean)
+
+# STEP 6: Calculate descriptive statistics for IAT
+iat_participants <- n_distinct(gender_iat_clean$participant)
+iat_trials <- nrow(gender_iat_clean)
+iat_mean_rt <- mean(gender_iat_clean$rt_winsorized, na.rm = TRUE)
+iat_sd_rt <- sd(gender_iat_clean$rt_winsorized, na.rm = TRUE)
+iat_median_rt <- median(gender_iat_clean$rt_winsorized, na.rm = TRUE)
+iat_accuracy <- mean(gender_iat_clean$correct == 1, na.rm = TRUE) * 100
+
+# IAT D-score statistics
+iat_mean_d <- mean(iat_d_scores$iat_d, na.rm = TRUE)
+iat_sd_d <- sd(iat_d_scores$iat_d, na.rm = TRUE)
+iat_min_d <- min(iat_d_scores$iat_d, na.rm = TRUE)
+iat_max_d <- max(iat_d_scores$iat_d, na.rm = TRUE)
+iat_prop_negative <- mean(iat_d_scores$iat_d < 0, na.rm = TRUE) * 100
+
+# IAT statistics by participant gender
+iat_by_gender <- iat_d_scores %>%
+  left_join(part_gender, by = "participant") %>%
+  filter(!is.na(participant_gender)) %>%
+  group_by(participant_gender) %>%
+  summarise(
+    mean_d = mean(iat_d, na.rm = TRUE),
+    sd_d = sd(iat_d, na.rm = TRUE),
+    n = n()
+  )
+
+# STEP 7: Create Table 3 - IAT Descriptive Statistics
+table3_data <- data.frame(
+  Statistic = c(
+    "Participants, n",
+    "Trials analyzed, n",
+    "Mean reaction time, ms",
+    "SD reaction time, ms", 
+    "Median reaction time, ms",
+    "Accuracy, %",
+    "Mean D-score",
+    "SD D-score",
+    "D-score range",
+    "Negative D-scores, %",
+    "Female participants",
+    "  Mean D-score",
+    "  SD D-score",
+    "  n",
+    "Male participants", 
+    "  Mean D-score",
+    "  SD D-score",
+    "  n"
+  ),
+  Value = c(
+    sprintf("%d", iat_participants),
+    sprintf("%d", iat_trials),
+    sprintf("%.1f", iat_mean_rt),
+    sprintf("%.1f", iat_sd_rt),
+    sprintf("%.1f", iat_median_rt),
+    sprintf("%.1f", iat_accuracy),
+    sprintf("%.3f", iat_mean_d),
+    sprintf("%.3f", iat_sd_d),
+    sprintf("%.3f to %.3f", iat_min_d, iat_max_d),
+    sprintf("%.1f", iat_prop_negative),
+    "",  # Empty for grouping
+    sprintf("%.3f", iat_by_gender$mean_d[iat_by_gender$participant_gender == "female"]),
+    sprintf("%.3f", iat_by_gender$sd_d[iat_by_gender$participant_gender == "female"]),
+    sprintf("%d", iat_by_gender$n[iat_by_gender$participant_gender == "female"]),
+    "",  # Empty for grouping
+    sprintf("%.3f", iat_by_gender$mean_d[iat_by_gender$participant_gender == "male"]),
+    sprintf("%.3f", iat_by_gender$sd_d[iat_by_gender$participant_gender == "male"]),
+    sprintf("%d", iat_by_gender$n[iat_by_gender$participant_gender == "male"])
+  )
+)
+```
+
+```{r Correlation Analyses}
+# Prepare data for IAT-VWP correlation
+
+# Ensure consistent participant ID format
+h1b_data <- h1b_data %>%
+  mutate(participant = as.character(participant))
+
+# Calculate VWP stereotype effect for each participant
+# Positive values = longer processing time for female voices
+vwp_effect <- h1b_data %>%
+  group_by(participant, speaker_gender) %>%
+  summarise(mean_rt = mean(dwell_time_ms, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = speaker_gender, values_from = mean_rt) %>%
+  mutate(vwp_stereotype_effect = female - male) %>%
+  select(participant, vwp_stereotype_effect)
+
+# Combine IAT and VWP data
+combined_iat_vwp <- iat_d_scores %>%
+  left_join(vwp_effect, by = "participant") %>%
+  left_join(part_gender, by = "participant") %>%
+  filter(!is.na(vwp_stereotype_effect) & !is.na(iat_d))
+
+# Full sample correlation
+cor_test <- cor.test(combined_iat_vwp$iat_d, combined_iat_vwp$vwp_stereotype_effect)
+
+# Correlations by participant gender
+cor_female <- tryCatch({
+  cor.test(
+    combined_iat_vwp$iat_d[combined_iat_vwp$participant_gender == "female"],
+    combined_iat_vwp$vwp_stereotype_effect[combined_iat_vwp$participant_gender == "female"]
+  )
+}, error = function(e) list(estimate = NA, conf.int = c(NA, NA), p.value = NA))
+
+cor_male <- tryCatch({
+  cor.test(
+    combined_iat_vwp$iat_d[combined_iat_vwp$participant_gender == "male"],
+    combined_iat_vwp$vwp_stereotype_effect[combined_iat_vwp$participant_gender == "male"]
+  )
+}, error = function(e) list(estimate = NA, conf.int = c(NA, NA), p.value = NA))
+
+# Create Table 4: IAT-VWP Correlations
+table4_data <- data.frame(
+  Sample = c("Full sample", "Female participants", "Male participants"),
+  n = c(
+    nrow(combined_iat_vwp),
+    sum(combined_iat_vwp$participant_gender == "female", na.rm = TRUE),
+    sum(combined_iat_vwp$participant_gender == "male", na.rm = TRUE)
+  ),
+  r = c(
+    sprintf("%.3f", cor_test$estimate),
+    sprintf("%.3f", cor_female$estimate),
+    sprintf("%.3f", cor_male$estimate)
+  ),
+  CI = c(
+    sprintf("[%.3f, %.3f]", cor_test$conf.int[1], cor_test$conf.int[2]),
+    sprintf("[%.3f, %.3f]", cor_female$conf.int[1], cor_female$conf.int[2]),
+    sprintf("[%.3f, %.3f]", cor_male$conf.int[1], cor_male$conf.int[2])
+  ),
+  p = c(
+    ifelse(cor_test$p.value < 0.001, "< .001", sprintf("%.3f", cor_test$p.value)),
+    ifelse(cor_female$p.value < 0.001, "< .001", sprintf("%.3f", cor_female$p.value)),
+    ifelse(cor_male$p.value < 0.001, "< .001", sprintf("%.3f", cor_male$p.value))
+  )
+)
+
+# Prepare MSS-VWP correlation data
+vwp_effect_mss <- h1b_data %>%
+  group_by(participant, speaker_gender) %>%
+  summarise(mean_rt = mean(dwell_time_ms, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = speaker_gender, values_from = mean_rt) %>%
+  mutate(vwp_stereotype_effect = female - male) %>%
+  select(participant, vwp_stereotype_effect)
+
+# Combine MSS with VWP effect
+combined_mss_vwp <- mss_combined %>%
+  left_join(vwp_effect_mss, by = "participant") %>%
+  filter(!is.na(vwp_stereotype_effect))
+
+# MSS-VWP correlation
+mss_vwp_cor <- cor.test(combined_mss_vwp$mss_score, 
+                        combined_mss_vwp$vwp_stereotype_effect)
+
+# Update MSS results with correlation
+mss_results$correlation_r <- mss_vwp_cor$estimate
+mss_results$correlation_p <- mss_vwp_cor$p.value
+
+# Create Table 8: MSS Statistical Tests with actual values
+table8_data <- data.frame(
+  Test = c("Gender Difference (t-test)", "Effect Size (Cohen's d)",
+           "Correlation with VWP Effect", "Correlation with IAT D-score"),
+  Statistic = c(
+    sprintf("t(%.1f) = %.2f", mss_results$df, mss_results$t_statistic),
+    sprintf("d = %.2f", mss_results$cohens_d),
+    sprintf("r = %.3f", mss_results$correlation_r),
+    "r = -0.044"  # From earlier analysis
+  ),
+  p_value = c(
+    ifelse(mss_results$p_value < 0.001, "< .001", sprintf("%.3f", mss_results$p_value)),
+    "N/A",
+    ifelse(mss_results$correlation_p < 0.001, "< .001", sprintf("%.3f", mss_results$correlation_p)),
+    "0.615"
+  ),
+  Interpretation = c(
+    "Significant",
+    "Large effect",
+    ifelse(mss_results$correlation_p < 0.05, "Significant correlation", "No significant correlation"),
+    "Not applicable"
+  )
+)
+```
+
+```{r Create All Figures}
+# Create figures directory if needed (optional)
+if (!dir.exists("figures")) dir.create("figures")
+
+# FIGURE 1: First Fixation RT by Speaker Gender
+# Get predicted values from the model
+pred_h1a <- ggpredict(m_final_first, terms = "speaker_gender")
+df_pred <- as.data.frame(pred_h1a)
+
+# Format p-value for subtitle
+p_val_h1a <- summary(m_final_first)$coefficients[2, "Pr(>|t|)"]
+p_subtitle <- ifelse(p_val_h1a < 0.001, "p < .001",
+                    ifelse(p_val_h1a < 0.01, paste0("p = ", round(p_val_h1a, 3), "**"),
+                          ifelse(p_val_h1a < 0.05, paste0("p = ", round(p_val_h1a, 3), "*"),
+                                paste0("p = ", round(p_val_h1a, 3)))))
+if(p_val_h1a >= 0.05) p_subtitle <- paste0(p_subtitle, ", n.s.")
+
+figure1 <- ggplot(df_pred, aes(x = x, y = predicted, color = x)) +
+  geom_point(size = 4) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), 
+                width = 0.2, linewidth = 0.8) +
+  scale_color_manual(values = gender_colors) +  
+  labs(title = "First Fixation Reaction Time by Speaker Gender",
+       subtitle = p_subtitle,
+       x = "Speaker Gender",
+       y = "Predicted First Fixation Latency (ms)") +
+  theme_minimal(base_size = 11, base_family = "Times New Roman") +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 11),
+    plot.subtitle = element_text(hjust = 0.5, color = "gray40", size = 10),
+    axis.title = element_text(face = "bold", size = 10),
+    axis.text = element_text(size = 9),
+    legend.position = "none"
+  )
+
+# FIGURE 2: Total Dwell Time by Speaker Gender
+p_val_h1b <- summary(m_final_dwell)$coefficients[2, "Pr(>|t|)"]
+p_label <- ifelse(p_val_h1b < 0.001, "p < .001", 
+                 ifelse(p_val_h1b < 0.01, paste0("p = ", round(p_val_h1b, 3), "**"),
+                       ifelse(p_val_h1b < 0.05, paste0("p = ", round(p_val_h1b, 3), "*"),
+                             paste0("p = ", round(p_val_h1b, 3)))))
+
+pred_h1b <- ggpredict(m_final_dwell, terms = "speaker_gender")
+df_pred_h1b <- as.data.frame(pred_h1b)
+
+figure2 <- ggplot(df_pred_h1b, aes(x = x, y = predicted, color = x)) +
+  geom_point(size = 4) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), 
+                width = 0.2, linewidth = 0.8) +
+  scale_color_manual(values = gender_colors) +  
+  labs(title = "Total Dwell Time by Speaker Gender",
+       subtitle = paste0("Model-predicted means with 95% CIs (", p_label, ")"),
+       x = "Speaker Gender",
+       y = "Predicted Total Dwell Time (ms)") +
+  custom_theme() +
+  theme(legend.position = "none")
+
+# FIGURE 3: Speaker × Participant Gender Interaction
+pred_int <- ggpredict(m_full_dwell, terms = c("speaker_gender", "participant_gender"))
+df_pred_int <- as.data.frame(pred_int)
+
+figure3 <- ggplot(df_pred_int, aes(x = x, y = predicted, 
+                                   color = group, shape = group,
+                                   group = group)) +
+  geom_point(size = 4, position = position_dodge(width = 0.2)) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high),
+                width = 0.2, linewidth = 0.8,
+                position = position_dodge(width = 0.2)) +
+  scale_color_manual(values = gender_colors, name = "Participant Gender") +   
+  scale_shape_manual(values = c(16, 17), name = "Participant Gender") +   
+  labs(title = "Interaction: Speaker × Participant Gender",
+       subtitle = paste0("Exploratory analysis: model-predicted means with 95% CIs\nInteraction: p = ", 
+                        round(h2_dwell_p, 3), ifelse(h2_dwell_p >= 0.05, " (n.s.)", "")),
+       x = "Speaker Gender",
+       y = "Predicted Dwell Time (ms)") +
+  custom_theme() +
+  theme(
+    legend.position = "bottom",
+    legend.title = element_text(face = "bold"),
+    legend.text = element_text(size = 10)
+  )
+
+# FIGURE 4: IAT D-score Distribution
+figure4 <- ggplot(iat_d_scores, aes(x = iat_d)) +
+  geom_histogram(bins = 25, fill = "#4DBBD5", color = "white", alpha = 0.85) +
+  geom_density(aes(y = after_stat(count)), color = "#3C5488", linewidth = 1.2) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "#E64B35", linewidth = 1) +
+  geom_vline(xintercept = mean(iat_d_scores$iat_d, na.rm = TRUE), 
+             linetype = "dashed", color = "#00A087", linewidth = 1) +
+  annotate("text", x = mean(iat_d_scores$iat_d), y = 12, 
+           label = paste("Mean =", round(mean(iat_d_scores$iat_d), 3)), 
+           hjust = 1.1, color = "#3C5488", size = 3.5) +
+  labs(title = "Distribution of IAT D-scores",
+       subtitle = "Negative scores: counter-stereotypic associations (Female+Good / Male+Bad)",
+       x = "IAT D-score", y = "Frequency") +
+  custom_theme(10)
+
+# FIGURE 5: IAT-VWP Correlation
+figure5 <- ggplot(combined_iat_vwp, aes(x = iat_d, y = vwp_stereotype_effect)) +
+  geom_point(aes(color = participant_gender), alpha = 0.7, size = 2.5) +
+  geom_smooth(method = "lm", se = TRUE, color = "#3C5488", 
+              fill = "lightgray", alpha = 0.3) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50", alpha = 0.5) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "gray50", alpha = 0.5) +
+  annotate("text", x = -0.8, y = max(combined_iat_vwp$vwp_stereotype_effect) * 0.9,
+           label = paste("r =", round(cor_test$estimate, 3), 
+                        "\np =", round(cor_test$p.value, 3)),
+           size = 3.5, hjust = 0) +
+  scale_color_manual(values = gender_colors, name = "Participant Gender") +
+  labs(title = "Correlation: IAT D-scores vs VWP Stereotype Effect",
+       x = "IAT D-score (Negative = counter-stereotypic)",
+       y = "VWP Stereotype Effect (ms)\nPositive = longer Dwell Time for female voices") +
+  custom_theme(10)
+
+# FIGURE 6: IAT D-scores by Participant Gender
+figure6 <- ggplot(iat_d_scores %>%
+                  left_join(part_gender, by = "participant") %>%
+                  filter(!is.na(participant_gender)),
+                aes(x = participant_gender, y = iat_d, fill = participant_gender)) +
+  geom_boxplot(alpha = 0.7, width = 0.6, outlier.shape = NA) +
+  geom_jitter(width = 0.15, alpha = 0.5, size = 2, shape = 21, color = "black") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50", linewidth = 0.8) +
+  stat_summary(fun = mean, geom = "point", shape = 23, size = 4, fill = "white") +
+  scale_fill_manual(values = gender_colors, name = "Participant Gender") +
+  labs(title = "IAT D-scores by Participant Gender",
+       subtitle = "Box plots with individual data points",
+       x = "Participant Gender",
+       y = "IAT D-score\n(Negative = counter-stereotypic)") +
+  custom_theme(12) +
+  theme(legend.position = "none")
+
+# FIGURE 7: MSS Gender Differences
+figure7 <- ggplot(mss_combined, 
+       aes(x = participant_gender, y = mss_score, fill = participant_gender)) +
+  geom_boxplot(alpha = 0.7, width = 0.6, outlier.shape = NA) +
+  geom_jitter(width = 0.1, alpha = 0.4, size = 2, shape = 21, color = "black") +
+  geom_hline(yintercept = 4, linetype = "dashed", color = "gray50", linewidth = 0.8) +
+  stat_summary(fun = mean, geom = "point", shape = 23, size = 4, fill = "white") +
+  scale_fill_manual(values = gender_colors) +
+  labs(title = "Modern Sexism Scores by Participant Gender",
+       subtitle = paste("t(", round(mss_results$df, 1), ") = ", 
+                       round(mss_results$t_statistic, 2),
+                       ", p < .001, d = ", round(mss_results$cohens_d, 2)),
+       x = "Participant Gender",
+       y = "MSS Score (1-7 scale)") +
+  annotate("text", x = 1.5, y = 6.5, 
+           label = paste("Women: M =", round(mss_results$female_mean, 2), 
+                        "\nMen: M =", round(mss_results$male_mean, 2)),
+           size = 4, hjust = 0.5, family = "Times New Roman") +
+  ylim(1, 7) +
+  custom_theme(12) +
+  theme(legend.position = "none")
+
+# FIGURE 8: MSS Categories Distribution
+category_table_data <- table(mss_combined$participant_gender, mss_combined$mss_category)
+category_df <- as.data.frame(category_table_data) %>%
+  rename(Gender = Var1, Category = Var2, Count = Freq)
+
+figure8 <- ggplot(category_df, 
+       aes(x = Gender, y = Count, fill = Category)) +
+  geom_col(position = "fill", width = 0.7) +
+  scale_fill_brewer(palette = "Set2") +
+  geom_text(aes(label = Count), 
+            position = position_fill(vjust = 0.5), 
+            size = 3.5, color = "black", family = "Times New Roman") +
+  labs(title = "Distribution of MSS Categories by Gender",
+       subtitle = "Proportion of participants in each sexism level",
+       x = "Participant Gender",
+       y = "Proportion") +
+  scale_y_continuous(labels = scales::percent) +
+  custom_theme(12)
+
+# FIGURE 9: MSS-VWP Correlation
+figure9 <- ggplot(combined_mss_vwp,
+       aes(x = mss_score, y = vwp_stereotype_effect)) +
+  geom_point(aes(color = participant_gender), alpha = 0.7, size = 3) +
+  geom_smooth(method = "lm", se = FALSE, color = "black", 
+              linetype = "dashed", linewidth = 1) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
+  geom_vline(xintercept = 4, linetype = "dotted", color = "gray50") +
+  scale_color_manual(values = gender_colors, name = "Participant Gender") +
+  labs(title = "Correlation: Modern Sexism vs VWP Stereotype Effect",
+       subtitle = paste("r =", round(mss_results$correlation_r, 3),
+                       ", p =", round(mss_results$correlation_p, 3)),
+       x = "Modern Sexism Score (Higher = more sexist attitudes)",
+       y = "VWP Stereotype Effect (ms)\nPositive = longer processing for female voices") +
+  annotate("text", x = 2.5, y = max(combined_mss_vwp$vwp_stereotype_effect) * 0.9,
+           label = ifelse(mss_results$correlation_p < 0.05, 
+                         "Significant correlation", "No significant correlation"), 
+           size = 4, color = "gray30", family = "Times New Roman") +
+  custom_theme(12)
+```
+
+```{r Table 7 - MSS Categories}
+# Create Table 7: Distribution of MSS Categories by Gender
+category_summary <- as.data.frame(category_table_data) %>%
+  rename(Gender = Var1, Category = Var2, Count = Freq) %>%
+  group_by(Gender) %>%
+  mutate(
+    Percentage = round(Count / sum(Count) * 100, 1),
+    Label = paste0(Count, " (", Percentage, "%)")
+  ) %>%
+  select(Gender, Category, Count = Label) %>%
+  pivot_wider(names_from = Category, values_from = Count)
+```
+
+```{r Display All Results, results='asis'}
+# Set plot dimensions for all figures
+options(repr.plot.width = 10, repr.plot.height = 6)
+
+# ============================================================================
+# VWP RESULTS SECTION
+# ============================================================================
+
+cat("\n\n# Visual World Paradigm (VWP) Results\n\n")
+
+# Table 1: VWP Descriptive Statistics
+cat("\n\n## Table 1. Descriptive Statistics for VWP Dependent Variables\n\n")
+kable(table1_data, 
+      caption = "Table 1. Descriptive Statistics for VWP Dependent Variables",
+      format = "html", align = c("l", "c", "r", "r", "c", "c")) %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover")) %>%
+  add_header_above(c(" " = 1, " " = 1, "Mean (ms)" = 1, "SD (ms)" = 1, 
+                     "95% CI" = 1, "n trials" = 1)) %>%
+  print()
+
+# Figure 1: First Fixation RT
+cat("\n\n## Figure 1. First Fixation Reaction Time by Speaker Gender\n\n")
+print(figure1)
+
+# Figure 2: Total Dwell Time
+cat("\n\n## Figure 2. Total Dwell Time by Speaker Gender\n\n")
+print(figure2)
+
+# Table 2: VWP Statistical Tests
+cat("\n\n## Table 2. Linear Mixed-Effects Model Results for VWP Hypotheses\n\n")
+kable(table2_data,
+      caption = "Table 2. Linear Mixed-Effects Model Results for VWP Hypotheses",
+      format = "html", align = c("l", "l", "r", "r", "r", "c")) %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover")) %>%
+  add_header_above(c("Model" = 1, "Effect" = 1, "β" = 1, "SE" = 1, "t" = 1, "p" = 1)) %>%
+  print()
+
+# Add footnote as separate text
+cat("\n\n*Note: † p < .10. Models were selected via likelihood ratio tests comparing full (with interaction) and reduced (main effects only) specifications.*\n\n")
+
+# Figure 3: Interaction
+cat("\n\n## Figure 3. Speaker × Participant Gender Interaction\n\n")
+print(figure3)
+
+# Table 5: Hypothesis Testing Summary
+cat("\n\n## Table 5. Summary of Hypothesis Testing Results\n\n")
+kable(table5_data,
+      caption = "Table 5. Summary of Hypothesis Testing Results",
+      format = "html", align = c("l", "l", "l", "c", "c", "l")) %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover")) %>%
+  print()
+
+cat("\n\n*Note: † p < .10. --- = not applicable.*\n\n")
+
+# ============================================================================
+# IAT RESULTS SECTION
+# ============================================================================
+
+cat("\n\n# Implicit Association Test (IAT) Results\n\n")
+
+# Table 3: IAT Descriptive Statistics
+cat("\n\n## Table 3. Descriptive Statistics for Implicit Association Test\n\n")
+kable(table3_data,
+      caption = "Table 3. Descriptive Statistics for Implicit Association Test",
+      format = "html", align = c("l", "l")) %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover")) %>%
+  print()
+
+# Figure 4: IAT Distribution
+cat("\n\n## Figure 4. Distribution of IAT D-scores\n\n")
+print(figure4)
+
+# Figure 6: IAT by Gender
+cat("\n\n## Figure 6. IAT D-scores by Participant Gender\n\n")
+print(figure6)
+
+# Table 4: IAT-VWP Correlations
+cat("\n\n## Table 4. Correlations Between IAT and VWP Measures\n\n")
+kable(table4_data,
+      caption = "Table 4. Correlations Between IAT D-scores and VWP Stereotype Effect",
+      format = "html", align = c("l", "c", "c", "c", "c")) %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover")) %>%
+  add_header_above(c("Sample" = 1, "n" = 1, "r" = 1, "95% CI" = 1, "p" = 1)) %>%
+  print()
+
+# Figure 5: IAT-VWP Correlation
+cat("\n\n## Figure 5. Correlation: IAT D-scores vs VWP Stereotype Effect\n\n")
+print(figure5)
+
+# ============================================================================
+# MSS RESULTS SECTION
+# ============================================================================
+
+cat("\n\n# Modern Sexism Scale (MSS) Results\n\n")
+
+# MSS Descriptive Table
+cat("\n\n## Table. Modern Sexism Scale Descriptive Statistics\n\n")
+kable(mss_table,
+      caption = "Modern Sexism Scale Descriptive Statistics",
+      format = "html", align = c("l", "c", "c", "c")) %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover")) %>%
+  print()
+
+# Figure 7: MSS Gender Differences
+cat("\n\n## Figure 7. Modern Sexism Scores by Participant Gender\n\n")
+print(figure7)
+
+# Figure 8: MSS Categories
+cat("\n\n## Figure 8. Distribution of MSS Categories by Gender\n\n")
+print(figure8)
+
+# Table 7: MSS Categories
+cat("\n\n## Table 7. Distribution of MSS Categories by Gender\n\n")
+kable(category_summary,
+      caption = "Table 7. Distribution of Participants Across MSS Categories",
+      format = "html", align = c("l", "c", "c", "c")) %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover")) %>%
+  print()
+
+# Table 8: MSS Statistical Tests
+cat("\n\n## Table 8. Statistical Test Results for Modern Sexism Scale\n\n")
+kable(table8_data,
+      caption = "Table 8. Statistical Test Results for Modern Sexism Scale",
+      format = "html", align = c("l", "l", "l", "l")) %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover")) %>%
+  print()
+
+# Figure 9: MSS-VWP Correlation
+cat("\n\n## Figure 9. Correlation: Modern Sexism vs VWP Stereotype Effect\n\n")
+print(figure9)
+
+# ============================================================================
+# END OF RESULTS
+# ============================================================================
+```
+
+```{r Save Figures, eval=FALSE}
+# OPTIONAL: Save figures to Downloads folder
+# Uncomment and run if you want to save the figures as PNG files
+
+# ggsave("~/Downloads/figure1_firstfixation.png", plot = figure1, width = 10, height = 6, dpi = 300)
+# ggsave("~/Downloads/figure2_dwelltime.png", plot = figure2, width = 10, height = 6, dpi = 300)
+# ggsave("~/Downloads/figure3_interaction.png", plot = figure3, width = 10, height = 6, dpi = 300)
+# ggsave("~/Downloads/figure4_iat_distribution.png", plot = figure4, width = 10, height = 6, dpi = 300)
+# ggsave("~/Downloads/figure5_iat_vwp_correlation.png", plot = figure5, width = 10, height = 6, dpi = 300)
+# ggsave("~/Downloads/figure6_iat_by_gender.png", plot = figure6, width = 10, height = 6, dpi = 300)
+# ggsave("~/Downloads/figure7_mss_by_gender.png", plot = figure7, width = 10, height = 6, dpi = 300)
+# ggsave("~/Downloads/figure8_mss_categories.png", plot = figure8, width = 10, height = 6, dpi = 300)
+# ggsave("~/Downloads/figure9_mss_vwp_correlation.png", plot = figure9, width = 10, height = 6, dpi = 300)
+# 
+# cat("All 9 figures saved to ~/Downloads/ folder.\n")
+```
+
+
+
+```{r display-all-code, echo=FALSE, results='asis'}
+cat("\n\n# Appendix: Complete R Code\n\n")
+cat("Below is the complete R code used in this analysis:\n\n")
+cat("```r\n")
+
+# Get all code chunks in order
+all_chunks <- knitr::all_labels()
+all_code <- character()
+
+for(chunk in all_chunks) {
+  chunk_code <- knitr::knit_code$get(chunk)
+  if(!is.null(chunk_code)) {
+    all_code <- c(all_code, 
+                  paste0("\n\n# --- Chunk: ", chunk, " ---\n"),
+                  chunk_code)
+  }
+}
+
+# Write all code
+cat(paste(all_code, collapse = "\n"))
+cat("\n```\n")
+```
+
